@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Симулятор сейфа клуба "Читатели"</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #11151c;
+      overflow: hidden;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #16181f;
+      image-rendering: auto;
+      touch-action: none;
+    }
+
+    .fallback {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      color: #eee;
+      background: #111;
+      z-index: 50;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .mobile-controls {
+      position: fixed;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      z-index: 20;
+      width: min(92vw, 420px);
+      display: none;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    .pad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .pad-actions {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .mobile-controls button {
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(24, 28, 36, 0.88);
+      color: #f1f4fa;
+      border-radius: 10px;
+      font: 700 20px Consolas, "Courier New", monospace;
+      padding: 14px 10px;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+
+    .mobile-controls button:active {
+      transform: scale(0.98);
+      background: rgba(40, 48, 62, 0.95);
+    }
+
+    @media (max-width: 900px), (pointer: coarse) {
+      .mobile-controls { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="app"></canvas>
+
+  <div id="mobileControls" class="mobile-controls">
+    <div class="pad-grid">
+      <button data-key="1">1</button>
+      <button data-key="2">2</button>
+      <button data-key="3">3</button>
+
+      <button data-key="4">4</button>
+      <button data-key="5">5</button>
+      <button data-key="6">6</button>
+
+      <button data-key="7">7</button>
+      <button data-key="8">8</button>
+      <button data-key="9">9</button>
+
+      <button data-key="back">⌫</button>
+      <button data-key="0">0</button>
+      <button data-key="enter">OK</button>
+    </div>
+    <div class="pad-actions">
+      <button data-key="reset">R</button>
+    </div>
+  </div>
+
+  <div class="fallback" id="fallback">Canvas не поддерживается. Поздравляю, вы открыли страницу на чем-то музейном.</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAnalytics, isSupported as analyticsSupported } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js";
+    import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+    (() => {
+      const canvas = document.getElementById("app");
+      const fallback = document.getElementById("fallback");
+      const mobileControls = document.getElementById("mobileControls");
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        fallback.style.display = "flex";
+        return;
+      }
+
+      // -----------------------------
+      // Firebase
+      // -----------------------------
+      const firebaseConfig = {
+        apiKey: "AIzaSyCj33JmCcHn4K9E7kzb2Lo6v5rY590eBJA",
+        authDomain: "safesim-4fd0f.firebaseapp.com",
+        projectId: "safesim-4fd0f",
+        databaseURL: "https://safesim-4fd0f-default-rtdb.firebaseio.com/",
+        storageBucket: "safesim-4fd0f.firebasestorage.app",
+        messagingSenderId: "585794180953",
+        appId: "1:585794180953:web:be6a421079b9f035901e48",
+        measurementId: "G-NHFW2P75QX"
+      };
+
+      const fbApp = initializeApp(firebaseConfig);
+      const db = getDatabase(fbApp);
+      analyticsSupported().then(ok => { if (ok) getAnalytics(fbApp); }).catch(() => {});
+      const SAFE_CODE_PATH = "safeCodes/global";
+
+      // -----------------------------
+      // Базовые настройки
+      // -----------------------------
+      const BASE_W = 960;
+      const BASE_H = 640;
+      const MAX_DIGITS = 6;
+
+      const DEFAULT_MAIN_CODE = "472915";
+      const MASTER_SET_MAIN = "1990";
+
+      // -----------------------------
+      // Состояния
+      // -----------------------------
+      const STATE = {
+        INPUT: "input",
+        SET_MAIN: "set_main",
+        OPENING: "opening",
+        OPEN: "open",
+        ERROR: "error",
+      };
+
+      // -----------------------------
+      // Цвета
+      // -----------------------------
+      const COLORS = {
+        BG: "#16181f",
+        GREEN: "#4ec971",
+        RED: "#dc5656",
+        YELLOW: "#ebd25a",
+        TEXT: "#ebeef5",
+        DIM: "#aab0be",
+        ACCENT: "#d2b054",
+        PANEL_A: "#222631",
+        PANEL_B: "#4e5667",
+        PANEL_C: "#101218",
+        DISPLAY_BG: "#0b1e14",
+        DISPLAY_EDGE: "#2d8758",
+        DISPLAY_TEXT: "#55ff99",
+      };
+
+      // -----------------------------
+      // Размеры/масштаб
+      // -----------------------------
+      let WIDTH = 0, HEIGHT = 0, uiScale = 1;
+      const SAFE_SCENE_SCALE = 0.55;
+
+      // Мобильные настройки компоновки, вот теперь они не прячутся в дебрях кода.
+      const MOBILE_VISUAL_BOOST = 1.50;       // размер сейфа/табло/текстов, кнопки не трогает
+      const MOBILE_KEYPAD_GAP = 14;           // зазор между сейфом и клавиатурой
+      const MOBILE_SAFE_Y_BIAS = -6;          // + вниз, - вверх
+      const MOBILE_TOP_SAFE_GAP = 12;         // минимальный отступ от верхней панели
+
+      function S(v) {
+        return Math.max(1, Math.round(v * uiScale));
+      }
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rectW = window.innerWidth;
+        const rectH = window.innerHeight;
+
+        canvas.width = Math.floor(rectW * dpr);
+        canvas.height = Math.floor(rectH * dpr);
+        canvas.style.width = rectW + "px";
+        canvas.style.height = rectH + "px";
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        WIDTH = rectW;
+        HEIGHT = rectH;
+        uiScale = Math.min(WIDTH / BASE_W, HEIGHT / BASE_H);
+
+        rebuildBgPattern();
+      }
+
+      // -----------------------------
+      // Утилиты
+      // -----------------------------
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+      function easeOutCubic(t) {
+        t = clamp(t, 0, 1);
+        return 1 - Math.pow(1 - t, 3);
+      }
+
+      function easeOutQuad(t) {
+        t = clamp(t, 0, 1);
+        return 1 - (1 - t) * (1 - t);
+      }
+
+      function displayDigits(s) {
+        let out = "";
+        for (let i = 0; i < MAX_DIGITS; i++) out += i < s.length ? s[i] : "_";
+        return out;
+      }
+
+      function drawPixelFrame(x, y, w, h, fill, light, dark, border = 4) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(x, y, w, h);
+
+        ctx.fillStyle = light;
+        ctx.fillRect(x, y, w, border);
+        ctx.fillRect(x, y, border, h);
+
+        ctx.fillStyle = dark;
+        ctx.fillRect(x, y + h - border, w, border);
+        ctx.fillRect(x + w - border, y, border, h);
+
+        ctx.fillStyle = dark;
+        ctx.fillRect(x, y, border, border);
+
+        ctx.fillStyle = light;
+        ctx.fillRect(x + w - border, y + h - border, border, border);
+      }
+
+      function drawText(text, x, y, color, px, align = "center", weight = "700") {
+        ctx.fillStyle = color;
+        ctx.font = `${weight} ${px}px Consolas, "Courier New", monospace`;
+        ctx.textAlign = align;
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawImageScaled(img, x, y, w, h) {
+        if (!img) return;
+        ctx.drawImage(img, x, y, w, h);
+      }
+
+      // -----------------------------
+      // Фон-сетка (кэш)
+      // -----------------------------
+      let bgPatternCanvas = null;
+
+      function rebuildBgPattern() {
+        bgPatternCanvas = document.createElement("canvas");
+        bgPatternCanvas.width = WIDTH;
+        bgPatternCanvas.height = HEIGHT;
+        const g = bgPatternCanvas.getContext("2d");
+
+        const cell = S(8);
+        for (let y = 0; y < HEIGHT; y += cell) {
+          for (let x = 0; x < WIDTH; x += cell) {
+            const even = ((((x / cell) | 0) + ((y / cell) | 0)) % 2) === 0;
+            g.fillStyle = even ? "#181a22" : "#15171e";
+            g.fillRect(x, y, cell, cell);
+          }
+        }
+      }
+
+      // -----------------------------
+      // localStorage (fallback + cache)
+      // -----------------------------
+      function loadCodeLocal() {
+        const main = localStorage.getItem("safe_main_code") || DEFAULT_MAIN_CODE;
+        const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
+        return valid(main) ? main : DEFAULT_MAIN_CODE;
+      }
+
+      function saveCodeLocal(main) {
+        try {
+          localStorage.setItem("safe_main_code", main);
+          return true;
+        } catch (e) {
+          console.warn("localStorage недоступен:", e);
+          return false;
+        }
+      }
+
+      async function loadCodeFromCloud() {
+        try {
+          const snap = await get(ref(db, SAFE_CODE_PATH));
+          if (!snap.exists()) {
+            const defaults = { main_code: DEFAULT_MAIN_CODE, updated_at: Date.now() };
+            await set(ref(db, SAFE_CODE_PATH), defaults);
+            saveCodeLocal(defaults.main_code);
+            return defaults.main_code;
+          }
+
+          const data = snap.val() || {};
+          const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
+          const main = valid(data.main_code) ? data.main_code : DEFAULT_MAIN_CODE;
+          saveCodeLocal(main);
+          return main;
+        } catch (e) {
+          console.warn("Не удалось загрузить код из Firebase, используем localStorage:", e);
+          return loadCodeLocal();
+        }
+      }
+
+      async function saveCodeToCloud(main) {
+        try {
+          await set(ref(db, SAFE_CODE_PATH), {
+            main_code: main,
+            updated_at: Date.now()
+          });
+          saveCodeLocal(main);
+          return true;
+        } catch (e) {
+          console.warn("Не удалось сохранить код в Firebase:", e);
+          return saveCodeLocal(main);
+        }
+      }
+
+      function subscribeToCode(onCode) {
+        try {
+          onValue(ref(db, SAFE_CODE_PATH), (snap) => {
+            if (!snap.exists()) return;
+            const data = snap.val() || {};
+            const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
+            const main = valid(data.main_code) ? data.main_code : DEFAULT_MAIN_CODE;
+            saveCodeLocal(main);
+            onCode(main);
+          });
+        } catch (e) {
+          console.warn("Подписка Firebase не работает:", e);
+        }
+      }
+
+      let MAIN_CODE = DEFAULT_MAIN_CODE;
+
+      // -----------------------------
+      // Состояние приложения
+      // -----------------------------
+      let appState = STATE.INPUT;
+      let entered = "";
+      let message = "Введите 6-значный код";
+      let messageColor = COLORS.DIM;
+
+      let openProgress = 0;
+      let shakeTimer = 0;
+      let errorFlash = 0;
+      let lastTime = performance.now();
+
+      // -----------------------------
+      // Ассеты: теперь только safe, door и bottle
+      // -----------------------------
+      const assets = {
+        safe: null,
+        door: null,
+        bottle: null,
+      };
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      }
+
+      async function loadAssets() {
+        try {
+          const [safe, door, bottle] = await Promise.all([
+            loadImage("assets/safe.png"),
+            loadImage("assets/door.png"),
+            loadImage("assets/bottle.png"),
+          ]);
+
+          assets.safe = safe;
+          assets.door = door;
+          assets.bottle = bottle;
+        } catch (e) {
+          console.error("Ошибка загрузки ассетов:", e);
+        }
+      }
+
+      // -----------------------------
+      // Управление состоянием
+      // -----------------------------
+      function setError(text, shake = 0.45, flash = 0.35) {
+        appState = STATE.ERROR;
+        message = text;
+        messageColor = COLORS.RED;
+        shakeTimer = shake;
+        errorFlash = flash;
+      }
+
+      function resetUI() {
+        appState = STATE.INPUT;
+        entered = "";
+        message = "Введите 6-значный код";
+        messageColor = COLORS.DIM;
+        openProgress = 0;
+        shakeTimer = 0;
+        errorFlash = 0;
+      }
+
+      function leaveOpenToInput() {
+        appState = STATE.INPUT;
+        entered = "";
+        message = "Введите 6-значный код";
+        messageColor = COLORS.DIM;
+        openProgress = 0;
+      }
+
+      // -----------------------------
+      // Рисование сейфа
+      // -----------------------------
+      function drawFallbackSafe(cx, cy, scaleBoost = 1) {
+        const w = Math.round(S(300) * scaleBoost);
+        const h = Math.round(S(300) * scaleBoost);
+        const x = Math.round(cx - w / 2);
+        const y = Math.round(cy - h / 2);
+
+        ctx.fillStyle = "#c99";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = "#543";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.fillStyle = "#111";
+        ctx.fillRect(x + w * 0.30, y + h * 0.42, w * 0.40, h * 0.14);
+        ctx.strokeStyle = "#2d8758";
+        ctx.strokeRect(x + w * 0.30, y + h * 0.42, w * 0.40, h * 0.14);
+
+        drawText(displayDigits(entered), x + w / 2, y + h * 0.49, COLORS.DISPLAY_TEXT, Math.round(S(24) * scaleBoost), "center", "700");
+      }
+
+      function drawBottle(bx, by, safeW, safeH) {
+        const bottleW = Math.round(safeW * 0.18);
+        const bottleH = Math.round(safeH * 0.48);
+        const bottleX = Math.round(bx + safeW * 0.50 - bottleW / 2);
+        const bottleY = Math.round(by + safeH * 0.34);
+
+        if (assets.bottle) {
+          drawImageScaled(assets.bottle, bottleX, bottleY, bottleW, bottleH);
+        } else {
+          // Заглушка, если bottle.png ещё не приехала. Да, даже бутылка может опоздать.
+          ctx.fillStyle = "#2e6a3e";
+          ctx.fillRect(bottleX + bottleW * 0.35, bottleY, bottleW * 0.30, bottleH * 0.25);
+          ctx.fillStyle = "#6fb56f";
+          ctx.fillRect(bottleX + bottleW * 0.18, bottleY + bottleH * 0.22, bottleW * 0.64, bottleH * 0.70);
+          ctx.fillStyle = "rgba(255,255,255,0.25)";
+          ctx.fillRect(bottleX + bottleW * 0.28, bottleY + bottleH * 0.28, bottleW * 0.12, bottleH * 0.52);
+        }
+      }
+
+      function drawElectronicDisplay(x, y, w, h, text, visualScale = 1) {
+        const border = Math.max(2, Math.round(S(3) * visualScale));
+        const radius = Math.round(S(6) * visualScale);
+
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.30)";
+        ctx.fillRect(x + border * 2, y + border * 2, w, h);
+
+        // Прямоугольник с лёгкой скруглённостью через path, иначе было бы слишком просто.
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + w - radius, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        ctx.lineTo(x + w, y + h - radius);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        ctx.lineTo(x + radius, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.fillStyle = COLORS.DISPLAY_BG;
+        ctx.fill();
+        ctx.lineWidth = border;
+        ctx.strokeStyle = COLORS.DISPLAY_EDGE;
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(85,255,153,0.10)";
+        ctx.fillRect(x + border, y + border, w - border * 2, Math.round((h - border * 2) * 0.36));
+
+        const fontSize = Math.round(h * 0.55);
+        drawText(text, x + w / 2, y + h / 2 + Math.round(h * 0.02), COLORS.DISPLAY_TEXT, fontSize, "center", "700");
+        ctx.restore();
+      }
+
+      function drawSafe(centerX, centerY, doorOpenAmount, shakeX = 0) {
+        const isMobileLike = window.matchMedia("(max-width: 900px), (pointer: coarse)").matches;
+        const sceneBoost = isMobileLike ? MOBILE_VISUAL_BOOST : 1;
+
+        if (!assets.safe || !assets.door) {
+          drawFallbackSafe(centerX + shakeX, centerY, sceneBoost);
+          return;
+        }
+
+        const cx = centerX + shakeX;
+        const cy = centerY;
+
+        const safeW = Math.round(S(840) * SAFE_SCENE_SCALE * sceneBoost);
+        const safeH = Math.round(S(840) * SAFE_SCENE_SCALE * sceneBoost);
+        const doorW0 = safeW;
+        const doorH0 = safeH;
+
+        const bx = Math.round(cx - safeW / 2);
+        const by = Math.round(cy - safeH / 2);
+
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.beginPath();
+        ctx.ellipse(bx + safeW / 2 + S(6), by + safeH - S(8), safeW / 2.1, S(14), 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Корпус/внутренность сейфа
+        drawImageScaled(assets.safe, bx, by, safeW, safeH);
+
+        // Бутылка внутри сейфа, рисуем ДО двери, чтобы дверь её закрывала.
+        drawBottle(bx, by, safeW, safeH);
+
+        // Дверь открывается вправо на петлях.
+        const tOpen = easeOutCubic(doorOpenAmount);
+        const minDoorW = Math.max(S(12), Math.round(doorW0 * 0.035));
+        const curDoorW = Math.max(1, Math.round(doorW0 - (doorW0 - minDoorW) * tOpen));
+        const depthShift = Math.round(doorW0 * 0.22 * easeOutQuad(doorOpenAmount));
+
+        const hingeRightX = bx + doorW0 + depthShift;
+        const doorX = hingeRightX - curDoorW;
+        const doorY = by;
+
+        // Боковая грань двери, чтобы она не выглядела как улетевшая фанера.
+        if (doorOpenAmount > 0.02) {
+          const sideTop = by + S(10);
+          const sideBottom = by + doorH0 - S(10);
+          const bodyHingeX = bx + doorW0 - S(2);
+          const frontHingeX = hingeRightX;
+
+          ctx.beginPath();
+          ctx.moveTo(bodyHingeX, sideTop);
+          ctx.lineTo(frontHingeX, sideTop + S(6));
+          ctx.lineTo(frontHingeX, sideBottom - S(6));
+          ctx.lineTo(bodyHingeX, sideBottom);
+          ctx.closePath();
+          ctx.fillStyle = "#605c6e";
+          ctx.fill();
+          ctx.strokeStyle = "#3a3644";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.strokeStyle = "rgba(200,200,220,0.35)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(frontHingeX - S(2), sideTop + S(7));
+          ctx.lineTo(frontHingeX - S(2), sideBottom - S(7));
+          ctx.stroke();
+        }
+
+        drawImageScaled(assets.door, doorX, doorY, curDoorW, doorH0);
+
+        // Электронное табло живёт на двери, поэтому двигается и сжимается вместе с ней.
+        const doorPersp = curDoorW / Math.max(1, doorW0);
+        const displayLocalCenterX = doorW0 * 0.50;
+        const displayLocalCenterY = doorH0 * 0.50;
+        const displayW0 = doorW0 * 0.42;
+        const displayH0 = doorH0 * 0.13;
+
+        const displayW = Math.max(S(40), Math.round(displayW0 * doorPersp));
+        const displayH = Math.max(S(18), Math.round(displayH0));
+        const displayCenterX = Math.round(doorX + displayLocalCenterX * doorPersp);
+        const displayCenterY = Math.round(doorY + displayLocalCenterY);
+
+        if (curDoorW > Math.max(S(20), doorW0 * 0.05)) {
+          drawElectronicDisplay(
+            displayCenterX - displayW / 2,
+            displayCenterY - displayH / 2,
+            displayW,
+            displayH,
+            displayDigits(entered),
+            sceneBoost
+          );
+        }
+      }
+
+      // -----------------------------
+      // Управление вводом
+      // -----------------------------
+      function trySaveMainCode(newMain) {
+        saveCodeToCloud(newMain).then((ok) => {
+          if (ok) {
+            MAIN_CODE = newMain;
+            entered = "";
+            appState = STATE.INPUT;
+            message = "Основной код сохранен";
+            messageColor = COLORS.GREEN;
+          } else {
+            setError("Ошибка сохранения", 0.2, 0.2);
+          }
+        });
+      }
+
+      function handleVirtualKey(key) {
+        if (key === "reset") {
+          resetUI();
+          return;
+        }
+
+        if (appState === STATE.OPEN) {
+          if (/^\d$/.test(key)) {
+            leaveOpenToInput();
+          } else if (key !== "reset") {
+            return;
+          }
+        }
+
+        if (![STATE.INPUT, STATE.SET_MAIN, STATE.ERROR].includes(appState)) return;
+
+        if (key === "enter") {
+          if (appState === STATE.SET_MAIN) {
+            if (entered.length !== MAX_DIGITS) {
+              setError("Основной код должен быть 6-значным", 0.2, 0.2);
+            } else {
+              trySaveMainCode(entered);
+            }
+            return;
+          }
+
+          if (appState === STATE.INPUT || appState === STATE.ERROR) {
+            if (entered === MASTER_SET_MAIN) {
+              appState = STATE.SET_MAIN;
+              entered = "";
+              message = "1990: введите новый 6-значный код";
+              messageColor = COLORS.YELLOW;
+              return;
+            }
+
+            if (entered.length !== MAX_DIGITS) {
+              setError("Нужно ввести 6 цифр", 0.2, 0.2);
+              return;
+            }
+
+            if (entered === MAIN_CODE) {
+              appState = STATE.OPENING;
+              message = "Код принят";
+              messageColor = COLORS.GREEN;
+              return;
+            }
+
+            setError("Неверная комбинация");
+          }
+          return;
+        }
+
+        if (key === "back") {
+          entered = entered.slice(0, -1);
+          if (appState === STATE.ERROR) {
+            appState = STATE.INPUT;
+            message = "Введите 6-значный код";
+            messageColor = COLORS.DIM;
+          }
+          return;
+        }
+
+        if (/^\d$/.test(key) && entered.length < MAX_DIGITS) {
+          entered += key;
+
+          if (appState === STATE.ERROR) {
+            appState = STATE.INPUT;
+            message = "Введите 6-значный код";
+            messageColor = COLORS.DIM;
+          }
+        }
+      }
+
+      // Desktop keyboard
+      window.addEventListener("keydown", (e) => {
+        const key = e.key;
+        if (key === "Escape") return;
+
+        if (key === "Enter") {
+          e.preventDefault();
+          handleVirtualKey("enter");
+          return;
+        }
+        if (key === "Backspace") {
+          e.preventDefault();
+          handleVirtualKey("back");
+          return;
+        }
+        if (key.toLowerCase() === "r") {
+          e.preventDefault();
+          handleVirtualKey("reset");
+          return;
+        }
+        if (/^\d$/.test(key)) {
+          e.preventDefault();
+          handleVirtualKey(key);
+        }
+      });
+
+      // Mobile controls
+      mobileControls.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-key]");
+        if (!btn) return;
+        handleVirtualKey(btn.dataset.key);
+      });
+      mobileControls.addEventListener("touchstart", () => {}, { passive: true });
+
+      // -----------------------------
+      // Update / Draw
+      // -----------------------------
+      function update(dt) {
+        if (appState === STATE.OPENING) {
+          openProgress += dt * 0.60;
+          if (openProgress >= 1) {
+            openProgress = 1;
+            appState = STATE.OPEN;
+            message = "Сейф открыт. R - сброс";
+            messageColor = COLORS.GREEN;
+          }
+        }
+
+        if (appState === STATE.ERROR) {
+          if (shakeTimer > 0) shakeTimer = Math.max(0, shakeTimer - dt);
+          if (errorFlash > 0) errorFlash = Math.max(0, errorFlash - dt);
+        }
+
+        if ([STATE.INPUT, STATE.SET_MAIN, STATE.ERROR].includes(appState)) {
+          openProgress = Math.max(0, openProgress - dt * 1.2);
+        }
+      }
+
+      function draw() {
+        if (bgPatternCanvas) ctx.drawImage(bgPatternCanvas, 0, 0);
+        else {
+          ctx.fillStyle = COLORS.BG;
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+
+        const isMobileLike = window.matchMedia("(max-width: 900px), (pointer: coarse)").matches;
+        const V = (v) => isMobileLike ? Math.max(1, Math.round(S(v) * MOBILE_VISUAL_BOOST)) : S(v);
+
+        // Верхняя панель
+        const topRect = { x: S(40), y: S(26), w: WIDTH - S(80), h: S(84) };
+        drawPixelFrame(topRect.x, topRect.y, topRect.w, topRect.h, COLORS.PANEL_A, COLORS.PANEL_B, COLORS.PANEL_C, V(4));
+
+        const titleY = topRect.y + Math.round(topRect.h * 0.32);
+        const msgY = topRect.y + Math.round(topRect.h * 0.70);
+        drawText("СИМУЛЯТОР СЕЙФА", WIDTH / 2, titleY, COLORS.ACCENT, V(28), "center", "700");
+        drawText(message, WIDTH / 2, msgY, messageColor, V(18), "center", "700");
+
+        // Shake
+        let shakeX = 0;
+        if (shakeTimer > 0) {
+          const amp = Math.max(1, Math.round(S(10) * Math.min(1, shakeTimer / 0.45)));
+          shakeX = Math.round(Math.sin(performance.now() * 0.06) * amp);
+        }
+
+        // Красная вспышка
+        if (errorFlash > 0) {
+          ctx.fillStyle = `rgba(255,50,50,${0.28 * Math.min(1, errorFlash / 0.35)})`;
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+
+        const mobileRect = isMobileLike ? mobileControls.getBoundingClientRect() : null;
+        const keypadTop = (isMobileLike && mobileRect) ? mobileRect.top : HEIGHT;
+
+        const safeBottomLimit = isMobileLike
+          ? keypadTop - S(MOBILE_KEYPAD_GAP)
+          : HEIGHT;
+
+        // На мобиле сейф центрируется между верхней панелью и клавиатурой.
+        const safeCenterY = isMobileLike
+          ? Math.round((topRect.y + topRect.h + S(MOBILE_TOP_SAFE_GAP) + safeBottomLimit) / 2 + S(MOBILE_SAFE_Y_BIAS))
+          : HEIGHT / 2 + S(52);
+
+        drawSafe(WIDTH / 2, safeCenterY, openProgress, shakeX);
+
+        const hint = "Enter: подтвердить | Backspace: удалить | 1990: сменить код | R: сброс";
+        if (!isMobileLike) {
+          drawText(hint, WIDTH / 2, HEIGHT - V(30), COLORS.DIM, V(14), "center", "700");
+        }
+      }
+
+      function frame(now) {
+        const dt = Math.min(0.033, (now - lastTime) / 1000);
+        lastTime = now;
+        update(dt);
+        draw();
+        requestAnimationFrame(frame);
+      }
+
+      async function initCode() {
+        MAIN_CODE = await loadCodeFromCloud();
+        subscribeToCode((main) => {
+          MAIN_CODE = main;
+        });
+      }
+
+      async function boot() {
+        resize();
+        await loadAssets();
+        await initCode();
+        requestAnimationFrame(frame);
+      }
+
+      window.addEventListener("resize", resize);
+      boot();
+    })();
+  </script>
+</body>
+</html>
