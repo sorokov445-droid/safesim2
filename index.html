@@ -8,16 +8,16 @@
     html, body {
       margin: 0;
       height: 100%;
-      background: #11151c;
+      background: #0f131a;
       overflow: hidden;
-      font-family: Consolas, "Courier New", monospace;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
     }
 
     canvas {
       display: block;
       width: 100vw;
       height: 100vh;
-      background: #16181f;
+      background: #111722;
       image-rendering: auto;
       touch-action: none;
     }
@@ -151,7 +151,6 @@
       const BASE_W = 960;
       const BASE_H = 640;
       const MAX_DIGITS = 6;
-
       const DEFAULT_MAIN_CODE = "472915";
       const MASTER_SET_MAIN = "1990";
 
@@ -170,19 +169,15 @@
       // Цвета
       // -----------------------------
       const COLORS = {
-        BG: "#16181f",
-        GREEN: "#4ec971",
-        RED: "#dc5656",
-        YELLOW: "#ebd25a",
-        TEXT: "#ebeef5",
-        DIM: "#aab0be",
-        ACCENT: "#d2b054",
-        PANEL_A: "#222631",
-        PANEL_B: "#4e5667",
-        PANEL_C: "#101218",
-        DISPLAY_BG: "#0b1e14",
-        DISPLAY_EDGE: "#2d8758",
-        DISPLAY_TEXT: "#55ff99",
+        GREEN: "#55d66f",
+        RED: "#f06464",
+        YELLOW: "#d7b65a",
+        TEXT: "#eef2f7",
+        DIM: "#9aa4b2",
+        ACCENT: "#d7b65a",
+        DISPLAY_BG: "#06170f",
+        DISPLAY_EDGE: "#208c59",
+        DISPLAY_TEXT: "#60f59a",
       };
 
       // -----------------------------
@@ -191,11 +186,11 @@
       let WIDTH = 0, HEIGHT = 0, uiScale = 1;
       const SAFE_SCENE_SCALE = 0.55;
 
-      // Мобильные настройки компоновки, вот теперь они не прячутся в дебрях кода.
-      const MOBILE_VISUAL_BOOST = 1.50;       // размер сейфа/табло/текстов, кнопки не трогает
-      const MOBILE_KEYPAD_GAP = 14;           // зазор между сейфом и клавиатурой
-      const MOBILE_SAFE_Y_BIAS = -6;          // + вниз, - вверх
-      const MOBILE_TOP_SAFE_GAP = 12;         // минимальный отступ от верхней панели
+      // Мобильные настройки компоновки.
+      const MOBILE_VISUAL_BOOST = 1.50;
+      const MOBILE_KEYPAD_GAP = 14;
+      const MOBILE_SAFE_Y_BIAS = -6;
+      const MOBILE_TOP_SAFE_GAP = 12;
 
       function S(v) {
         return Math.max(1, Math.round(v * uiScale));
@@ -216,8 +211,6 @@
         WIDTH = rectW;
         HEIGHT = rectH;
         uiScale = Math.min(WIDTH / BASE_W, HEIGHT / BASE_H);
-
-        rebuildBgPattern();
       }
 
       // -----------------------------
@@ -230,39 +223,30 @@
         return 1 - Math.pow(1 - t, 3);
       }
 
-      function easeOutQuad(t) {
-        t = clamp(t, 0, 1);
-        return 1 - (1 - t) * (1 - t);
-      }
-
       function displayDigits(s) {
         let out = "";
         for (let i = 0; i < MAX_DIGITS; i++) out += i < s.length ? s[i] : "_";
         return out;
       }
 
-      function drawPixelFrame(x, y, w, h, fill, light, dark, border = 4) {
-        ctx.fillStyle = fill;
-        ctx.fillRect(x, y, w, h);
-
-        ctx.fillStyle = light;
-        ctx.fillRect(x, y, w, border);
-        ctx.fillRect(x, y, border, h);
-
-        ctx.fillStyle = dark;
-        ctx.fillRect(x, y + h - border, w, border);
-        ctx.fillRect(x + w - border, y, border, h);
-
-        ctx.fillStyle = dark;
-        ctx.fillRect(x, y, border, border);
-
-        ctx.fillStyle = light;
-        ctx.fillRect(x + w - border, y + h - border, border, border);
+      function roundedRectPath(x, y, w, h, r) {
+        r = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
       }
 
-      function drawText(text, x, y, color, px, align = "center", weight = "700") {
+      function drawText(text, x, y, color, px, align = "center", weight = "700", family = "Inter, Segoe UI, Roboto, Arial, sans-serif") {
         ctx.fillStyle = color;
-        ctx.font = `${weight} ${px}px Consolas, "Courier New", monospace`;
+        ctx.font = `${weight} ${px}px ${family}`;
         ctx.textAlign = align;
         ctx.textBaseline = "middle";
         ctx.fillText(text, x, y);
@@ -273,34 +257,59 @@
         ctx.drawImage(img, x, y, w, h);
       }
 
-      // -----------------------------
-      // Фон-сетка (кэш)
-      // -----------------------------
-      let bgPatternCanvas = null;
+      function drawModernBackground() {
+        const g = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+        g.addColorStop(0, "#101722");
+        g.addColorStop(0.55, "#0c1119");
+        g.addColorStop(1, "#080b10");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-      function rebuildBgPattern() {
-        bgPatternCanvas = document.createElement("canvas");
-        bgPatternCanvas.width = WIDTH;
-        bgPatternCanvas.height = HEIGHT;
-        const g = bgPatternCanvas.getContext("2d");
+        const glow1 = ctx.createRadialGradient(WIDTH * 0.30, HEIGHT * 0.20, 0, WIDTH * 0.30, HEIGHT * 0.20, WIDTH * 0.55);
+        glow1.addColorStop(0, "rgba(76, 103, 142, 0.18)");
+        glow1.addColorStop(1, "rgba(76, 103, 142, 0)");
+        ctx.fillStyle = glow1;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-        const cell = S(8);
-        for (let y = 0; y < HEIGHT; y += cell) {
-          for (let x = 0; x < WIDTH; x += cell) {
-            const even = ((((x / cell) | 0) + ((y / cell) | 0)) % 2) === 0;
-            g.fillStyle = even ? "#181a22" : "#15171e";
-            g.fillRect(x, y, cell, cell);
-          }
-        }
+        const glow2 = ctx.createRadialGradient(WIDTH * 0.72, HEIGHT * 0.82, 0, WIDTH * 0.72, HEIGHT * 0.82, WIDTH * 0.45);
+        glow2.addColorStop(0, "rgba(40, 60, 88, 0.14)");
+        glow2.addColorStop(1, "rgba(40, 60, 88, 0)");
+        ctx.fillStyle = glow2;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      }
+
+      function drawModernTopPanel(x, y, w, h) {
+        ctx.save();
+        ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+        ctx.shadowBlur = S(18);
+        ctx.shadowOffsetY = S(8);
+
+        roundedRectPath(x, y, w, h, S(18));
+        const panelGradient = ctx.createLinearGradient(x, y, x, y + h);
+        panelGradient.addColorStop(0, "rgba(35, 42, 54, 0.96)");
+        panelGradient.addColorStop(1, "rgba(24, 30, 40, 0.92)");
+        ctx.fillStyle = panelGradient;
+        ctx.fill();
+
+        ctx.shadowColor = "transparent";
+        ctx.lineWidth = Math.max(1, S(1));
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.10)";
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + S(18), y + S(1));
+        ctx.lineTo(x + w - S(18), y + S(1));
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+        ctx.stroke();
+        ctx.restore();
       }
 
       // -----------------------------
-      // localStorage (fallback + cache)
+      // localStorage + Firebase
       // -----------------------------
       function loadCodeLocal() {
         const main = localStorage.getItem("safe_main_code") || DEFAULT_MAIN_CODE;
-        const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
-        return valid(main) ? main : DEFAULT_MAIN_CODE;
+        return /^\d{6}$/.test(main) ? main : DEFAULT_MAIN_CODE;
       }
 
       function saveCodeLocal(main) {
@@ -324,8 +333,7 @@
           }
 
           const data = snap.val() || {};
-          const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
-          const main = valid(data.main_code) ? data.main_code : DEFAULT_MAIN_CODE;
+          const main = /^\d{6}$/.test(data.main_code || "") ? data.main_code : DEFAULT_MAIN_CODE;
           saveCodeLocal(main);
           return main;
         } catch (e) {
@@ -353,8 +361,7 @@
           onValue(ref(db, SAFE_CODE_PATH), (snap) => {
             if (!snap.exists()) return;
             const data = snap.val() || {};
-            const valid = (s) => typeof s === "string" && /^\d{6}$/.test(s);
-            const main = valid(data.main_code) ? data.main_code : DEFAULT_MAIN_CODE;
+            const main = /^\d{6}$/.test(data.main_code || "") ? data.main_code : DEFAULT_MAIN_CODE;
             saveCodeLocal(main);
             onCode(main);
           });
@@ -379,7 +386,7 @@
       let lastTime = performance.now();
 
       // -----------------------------
-      // Ассеты: теперь только safe, door и bottle
+      // Ассеты: только safe, door и bottle
       // -----------------------------
       const assets = {
         safe: null,
@@ -456,64 +463,68 @@
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, w, h);
 
-        ctx.fillStyle = "#111";
-        ctx.fillRect(x + w * 0.30, y + h * 0.42, w * 0.40, h * 0.14);
-        ctx.strokeStyle = "#2d8758";
-        ctx.strokeRect(x + w * 0.30, y + h * 0.42, w * 0.40, h * 0.14);
-
-        drawText(displayDigits(entered), x + w / 2, y + h * 0.49, COLORS.DISPLAY_TEXT, Math.round(S(24) * scaleBoost), "center", "700");
+        ctx.fillStyle = "#f3c24d";
+        ctx.fillRect(x + w * 0.35, y + h * 0.35, w * 0.30, h * 0.30);
       }
 
       function drawBottle(bx, by, safeW, safeH) {
-        const bottleW = Math.round(safeW * 0.18);
-        const bottleH = Math.round(safeH * 0.48);
+        const maxBottleH = Math.round(safeH * 0.36);
+        const maxBottleW = Math.round(safeW * 0.24);
+
+        let bottleW = maxBottleW;
+        let bottleH = maxBottleH;
+
+        if (assets.bottle && assets.bottle.width && assets.bottle.height) {
+          const ratio = assets.bottle.width / assets.bottle.height;
+          bottleH = maxBottleH;
+          bottleW = Math.round(bottleH * ratio);
+          if (bottleW > maxBottleW) {
+            bottleW = maxBottleW;
+            bottleH = Math.round(bottleW / ratio);
+          }
+        }
+
         const bottleX = Math.round(bx + safeW * 0.50 - bottleW / 2);
-        const bottleY = Math.round(by + safeH * 0.34);
+        const bottleY = Math.round(by + safeH * 0.42);
 
         if (assets.bottle) {
           drawImageScaled(assets.bottle, bottleX, bottleY, bottleW, bottleH);
         } else {
-          // Заглушка, если bottle.png ещё не приехала. Да, даже бутылка может опоздать.
           ctx.fillStyle = "#2e6a3e";
           ctx.fillRect(bottleX + bottleW * 0.35, bottleY, bottleW * 0.30, bottleH * 0.25);
           ctx.fillStyle = "#6fb56f";
-          ctx.fillRect(bottleX + bottleW * 0.18, bottleY + bottleH * 0.22, bottleW * 0.64, bottleH * 0.70);
+          ctx.fillRect(bottleX + bottleW * 0.14, bottleY + bottleH * 0.22, bottleW * 0.72, bottleH * 0.70);
           ctx.fillStyle = "rgba(255,255,255,0.25)";
-          ctx.fillRect(bottleX + bottleW * 0.28, bottleY + bottleH * 0.28, bottleW * 0.12, bottleH * 0.52);
+          ctx.fillRect(bottleX + bottleW * 0.25, bottleY + bottleH * 0.28, bottleW * 0.12, bottleH * 0.52);
         }
       }
 
       function drawElectronicDisplay(x, y, w, h, text, visualScale = 1) {
         const border = Math.max(2, Math.round(S(3) * visualScale));
-        const radius = Math.round(S(6) * visualScale);
+        const radius = Math.round(S(8) * visualScale);
 
         ctx.save();
-        ctx.fillStyle = "rgba(0,0,0,0.30)";
-        ctx.fillRect(x + border * 2, y + border * 2, w, h);
-
-        // Прямоугольник с лёгкой скруглённостью через path, иначе было бы слишком просто.
-        ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + w - radius, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-        ctx.lineTo(x + w, y + h - radius);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-        ctx.lineTo(x + radius, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
-        ctx.fillStyle = COLORS.DISPLAY_BG;
+        ctx.fillStyle = "rgba(0,0,0,0.32)";
+        roundedRectPath(x + border * 1.4, y + border * 1.6, w, h, radius);
         ctx.fill();
+
+        roundedRectPath(x, y, w, h, radius);
+        const displayGradient = ctx.createLinearGradient(x, y, x, y + h);
+        displayGradient.addColorStop(0, "#082316");
+        displayGradient.addColorStop(1, COLORS.DISPLAY_BG);
+        ctx.fillStyle = displayGradient;
+        ctx.fill();
+
         ctx.lineWidth = border;
         ctx.strokeStyle = COLORS.DISPLAY_EDGE;
         ctx.stroke();
 
-        ctx.fillStyle = "rgba(85,255,153,0.10)";
-        ctx.fillRect(x + border, y + border, w - border * 2, Math.round((h - border * 2) * 0.36));
+        ctx.fillStyle = "rgba(96,245,154,0.10)";
+        roundedRectPath(x + border, y + border, w - border * 2, Math.round((h - border * 2) * 0.36), Math.max(2, radius - border));
+        ctx.fill();
 
         const fontSize = Math.round(h * 0.55);
-        drawText(text, x + w / 2, y + h / 2 + Math.round(h * 0.02), COLORS.DISPLAY_TEXT, fontSize, "center", "700");
+        drawText(text, x + w / 2, y + h / 2 + Math.round(h * 0.02), COLORS.DISPLAY_TEXT, fontSize, "center", "700", "Consolas, Courier New, monospace");
         ctx.restore();
       }
 
@@ -537,7 +548,7 @@
         const bx = Math.round(cx - safeW / 2);
         const by = Math.round(cy - safeH / 2);
 
-        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillStyle = "rgba(0,0,0,0.34)";
         ctx.beginPath();
         ctx.ellipse(bx + safeW / 2 + S(6), by + safeH - S(8), safeW / 2.1, S(14), 0, 0, Math.PI * 2);
         ctx.fill();
@@ -545,61 +556,25 @@
         // Корпус/внутренность сейфа
         drawImageScaled(assets.safe, bx, by, safeW, safeH);
 
-        // Бутылка внутри сейфа, рисуем ДО двери, чтобы дверь её закрывала.
+        // Бутылка внутри сейфа, рисуем ДО двери, чтобы закрытая дверь её скрывала.
         drawBottle(bx, by, safeW, safeH);
 
-        // Дверь открывается вправо на петлях.
+        // Дверь теперь не сжимается. Она просто едет вправо, пока не уйдёт за экран.
         const tOpen = easeOutCubic(doorOpenAmount);
-        const minDoorW = Math.max(S(12), Math.round(doorW0 * 0.035));
-        const curDoorW = Math.max(1, Math.round(doorW0 - (doorW0 - minDoorW) * tOpen));
-        const depthShift = Math.round(doorW0 * 0.22 * easeOutQuad(doorOpenAmount));
-
-        const hingeRightX = bx + doorW0 + depthShift;
-        const doorX = hingeRightX - curDoorW;
+        const openDistance = Math.max(WIDTH - bx + doorW0 * 0.18, doorW0 * 1.35);
+        const doorX = Math.round(bx + openDistance * tOpen);
         const doorY = by;
 
-        // Боковая грань двери, чтобы она не выглядела как улетевшая фанера.
-        if (doorOpenAmount > 0.02) {
-          const sideTop = by + S(10);
-          const sideBottom = by + doorH0 - S(10);
-          const bodyHingeX = bx + doorW0 - S(2);
-          const frontHingeX = hingeRightX;
+        drawImageScaled(assets.door, doorX, doorY, doorW0, doorH0);
 
-          ctx.beginPath();
-          ctx.moveTo(bodyHingeX, sideTop);
-          ctx.lineTo(frontHingeX, sideTop + S(6));
-          ctx.lineTo(frontHingeX, sideBottom - S(6));
-          ctx.lineTo(bodyHingeX, sideBottom);
-          ctx.closePath();
-          ctx.fillStyle = "#605c6e";
-          ctx.fill();
-          ctx.strokeStyle = "#3a3644";
-          ctx.lineWidth = 2;
-          ctx.stroke();
+        // Электронное табло живёт на двери, поэтому отъезжает вместе с ней.
+        const displayW = Math.round(doorW0 * 0.42);
+        const displayH = Math.round(doorH0 * 0.13);
+        const displayCenterX = Math.round(doorX + doorW0 * 0.50);
+        const displayCenterY = Math.round(doorY + doorH0 * 0.50);
 
-          ctx.strokeStyle = "rgba(200,200,220,0.35)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(frontHingeX - S(2), sideTop + S(7));
-          ctx.lineTo(frontHingeX - S(2), sideBottom - S(7));
-          ctx.stroke();
-        }
-
-        drawImageScaled(assets.door, doorX, doorY, curDoorW, doorH0);
-
-        // Электронное табло живёт на двери, поэтому двигается и сжимается вместе с ней.
-        const doorPersp = curDoorW / Math.max(1, doorW0);
-        const displayLocalCenterX = doorW0 * 0.50;
-        const displayLocalCenterY = doorH0 * 0.50;
-        const displayW0 = doorW0 * 0.42;
-        const displayH0 = doorH0 * 0.13;
-
-        const displayW = Math.max(S(40), Math.round(displayW0 * doorPersp));
-        const displayH = Math.max(S(18), Math.round(displayH0));
-        const displayCenterX = Math.round(doorX + displayLocalCenterX * doorPersp);
-        const displayCenterY = Math.round(doorY + displayLocalCenterY);
-
-        if (curDoorW > Math.max(S(20), doorW0 * 0.05)) {
+        // Рисуем табло, пока дверь хоть как-то рядом с экраном. Вряд ли оно кому-то нужно за горизонтом.
+        if (doorX < WIDTH + doorW0 * 0.2) {
           drawElectronicDisplay(
             displayCenterX - displayW / 2,
             displayCenterY - displayH / 2,
@@ -620,7 +595,7 @@
             MAIN_CODE = newMain;
             entered = "";
             appState = STATE.INPUT;
-            message = "Основной код сохранен";
+            message = "Основной код сохранён";
             messageColor = COLORS.GREEN;
           } else {
             setError("Ошибка сохранения", 0.2, 0.2);
@@ -692,7 +667,6 @@
 
         if (/^\d$/.test(key) && entered.length < MAX_DIGITS) {
           entered += key;
-
           if (appState === STATE.ERROR) {
             appState = STATE.INPUT;
             message = "Введите 6-значный код";
@@ -744,7 +718,7 @@
           if (openProgress >= 1) {
             openProgress = 1;
             appState = STATE.OPEN;
-            message = "Сейф открыт. R - сброс";
+            message = "Сейф открыт. R — сброс";
             messageColor = COLORS.GREEN;
           }
         }
@@ -760,23 +734,24 @@
       }
 
       function draw() {
-        if (bgPatternCanvas) ctx.drawImage(bgPatternCanvas, 0, 0);
-        else {
-          ctx.fillStyle = COLORS.BG;
-          ctx.fillRect(0, 0, WIDTH, HEIGHT);
-        }
+        drawModernBackground();
 
         const isMobileLike = window.matchMedia("(max-width: 900px), (pointer: coarse)").matches;
         const V = (v) => isMobileLike ? Math.max(1, Math.round(S(v) * MOBILE_VISUAL_BOOST)) : S(v);
 
-        // Верхняя панель
-        const topRect = { x: S(40), y: S(26), w: WIDTH - S(80), h: S(84) };
-        drawPixelFrame(topRect.x, topRect.y, topRect.w, topRect.h, COLORS.PANEL_A, COLORS.PANEL_B, COLORS.PANEL_C, V(4));
+        // Верхняя современная плашка
+        const topRect = {
+          x: S(34),
+          y: S(22),
+          w: WIDTH - S(68),
+          h: S(88)
+        };
+        drawModernTopPanel(topRect.x, topRect.y, topRect.w, topRect.h);
 
-        const titleY = topRect.y + Math.round(topRect.h * 0.32);
+        const titleY = topRect.y + Math.round(topRect.h * 0.34);
         const msgY = topRect.y + Math.round(topRect.h * 0.70);
-        drawText("СИМУЛЯТОР СЕЙФА", WIDTH / 2, titleY, COLORS.ACCENT, V(28), "center", "700");
-        drawText(message, WIDTH / 2, msgY, messageColor, V(18), "center", "700");
+        drawText("СИМУЛЯТОР СЕЙФА", WIDTH / 2, titleY, COLORS.ACCENT, V(26), "center", "800");
+        drawText(message, WIDTH / 2, msgY, messageColor, V(16), "center", "600");
 
         // Shake
         let shakeX = 0;
@@ -787,7 +762,7 @@
 
         // Красная вспышка
         if (errorFlash > 0) {
-          ctx.fillStyle = `rgba(255,50,50,${0.28 * Math.min(1, errorFlash / 0.35)})`;
+          ctx.fillStyle = `rgba(255,50,50,${0.24 * Math.min(1, errorFlash / 0.35)})`;
           ctx.fillRect(0, 0, WIDTH, HEIGHT);
         }
 
@@ -805,9 +780,9 @@
 
         drawSafe(WIDTH / 2, safeCenterY, openProgress, shakeX);
 
-        const hint = "Enter: подтвердить | Backspace: удалить | 1990: сменить код | R: сброс";
+        const hint = "Enter: подтвердить   •   Backspace: удалить   •   1990: сменить код   •   R: сброс";
         if (!isMobileLike) {
-          drawText(hint, WIDTH / 2, HEIGHT - V(30), COLORS.DIM, V(14), "center", "700");
+          drawText(hint, WIDTH / 2, HEIGHT - V(30), COLORS.DIM, V(13), "center", "600");
         }
       }
 
