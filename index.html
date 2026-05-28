@@ -80,6 +80,89 @@
     @media (max-width: 900px), (pointer: coarse) {
       .mobile-controls { display: block; }
     }
+
+    .team-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(2, 6, 12, 0.62);
+      backdrop-filter: blur(8px);
+    }
+
+    .team-modal-backdrop.is-open {
+      display: flex;
+    }
+
+    .team-modal {
+      width: min(92vw, 460px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 22px;
+      padding: 22px;
+      background: linear-gradient(180deg, rgba(32, 39, 52, 0.98), rgba(16, 22, 32, 0.98));
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+      color: #eef2f7;
+    }
+
+    .team-modal h2 {
+      margin: 0 0 14px;
+      font: 800 22px Inter, "Segoe UI", Roboto, Arial, sans-serif;
+      letter-spacing: 0.02em;
+      color: #d7b65a;
+    }
+
+    .team-modal label {
+      display: block;
+      margin-bottom: 8px;
+      color: #aeb7c6;
+      font: 600 14px Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    .team-modal input {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 14px;
+      padding: 14px 15px;
+      outline: none;
+      background: rgba(6, 12, 20, 0.82);
+      color: #ffffff;
+      font: 700 18px Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    .team-modal input:focus {
+      border-color: rgba(85, 214, 111, 0.85);
+      box-shadow: 0 0 0 3px rgba(85, 214, 111, 0.14);
+    }
+
+    .team-modal .modal-error {
+      min-height: 20px;
+      margin: 10px 0 12px;
+      color: #f06464;
+      font: 600 13px Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    .team-modal button {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 18px;
+      cursor: pointer;
+      color: #08100b;
+      background: linear-gradient(180deg, #64e987, #37bd61);
+      font: 900 18px Inter, "Segoe UI", Roboto, Arial, sans-serif;
+      letter-spacing: 0.03em;
+      box-shadow: 0 10px 24px rgba(55, 189, 97, 0.25);
+    }
+
+    .team-modal button:disabled {
+      opacity: 0.62;
+      cursor: wait;
+    }
+
   </style>
 </head>
 <body>
@@ -110,6 +193,17 @@
 
   <div class="fallback" id="fallback">Canvas не поддерживается. Поздравляю, вы открыли страницу на чем-то музейном.</div>
 
+
+  <div id="teamModalBackdrop" class="team-modal-backdrop" aria-hidden="true">
+    <div class="team-modal" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+      <h2 id="teamModalTitle">Введите название команды</h2>
+      <label for="teamNameInput">Название команды</label>
+      <input id="teamNameInput" type="text" maxlength="80" autocomplete="off" placeholder="Например: Команда №1" />
+      <div id="teamModalError" class="modal-error"></div>
+      <button id="finishTeamButton" type="button">Закончить!</button>
+    </div>
+  </div>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import { getAnalytics, isSupported as analyticsSupported } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js";
@@ -119,6 +213,10 @@
       const canvas = document.getElementById("app");
       const fallback = document.getElementById("fallback");
       const mobileControls = document.getElementById("mobileControls");
+      const teamModalBackdrop = document.getElementById("teamModalBackdrop");
+      const teamNameInput = document.getElementById("teamNameInput");
+      const teamModalError = document.getElementById("teamModalError");
+      const finishTeamButton = document.getElementById("finishTeamButton");
       const ctx = canvas.getContext("2d");
 
       if (!ctx) {
@@ -144,6 +242,10 @@
       const db = getDatabase(fbApp);
       analyticsSupported().then(ok => { if (ok) getAnalytics(fbApp); }).catch(() => {});
       const SAFE_CODE_PATH = "safeCodes/global";
+
+      // Google Apps Script Web App URL для записи результатов в таблицу.
+      // Сначала создай Apps Script, опубликуй его как Web App и вставь URL сюда.
+      const RESULTS_WEB_APP_URL = "PASTE_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE";
 
       // -----------------------------
       // Базовые настройки
@@ -381,6 +483,9 @@
       let messageColor = COLORS.DIM;
 
       let openProgress = 0;
+      let continueButtonRect = null;
+      let resultSubmitted = false;
+      let isSubmittingResult = false;
       let shakeTimer = 0;
       let errorFlash = 0;
       let lastTime = performance.now();
@@ -438,6 +543,8 @@
         openProgress = 0;
         shakeTimer = 0;
         errorFlash = 0;
+        resultSubmitted = false;
+        continueButtonRect = null;
       }
 
       function leaveOpenToInput() {
@@ -446,6 +553,110 @@
         message = "Введите 6-значный код";
         messageColor = COLORS.DIM;
         openProgress = 0;
+      }
+
+
+      function openTeamModal() {
+        teamModalError.textContent = "";
+        teamNameInput.value = "";
+        teamModalBackdrop.classList.add("is-open");
+        teamModalBackdrop.setAttribute("aria-hidden", "false");
+        setTimeout(() => teamNameInput.focus(), 40);
+      }
+
+      function closeTeamModal() {
+        teamModalBackdrop.classList.remove("is-open");
+        teamModalBackdrop.setAttribute("aria-hidden", "true");
+      }
+
+      async function submitTeamResult(teamName) {
+        if (!RESULTS_WEB_APP_URL || RESULTS_WEB_APP_URL.includes("PASTE_GOOGLE_APPS_SCRIPT")) {
+          throw new Error("Не задан URL Google Apps Script Web App");
+        }
+
+        const payload = {
+          teamName,
+          clientTimeISO: new Date().toISOString(),
+          source: "safe-simulator"
+        };
+
+        // no-cors нужен, чтобы статическая страница на GitHub Pages могла отправить данные в Apps Script
+        // без пляски с CORS. Ответ прочитать нельзя, зато POST доходит. Да, веб-разработка — цирк с формальностями.
+        await fetch(RESULTS_WEB_APP_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+
+        return true;
+      }
+
+      async function finishTeam() {
+        if (isSubmittingResult) return;
+
+        const teamName = teamNameInput.value.trim();
+        if (!teamName) {
+          teamModalError.textContent = "Введите название команды";
+          return;
+        }
+
+        isSubmittingResult = true;
+        finishTeamButton.disabled = true;
+        finishTeamButton.textContent = "Сохраняю...";
+        teamModalError.textContent = "";
+
+        try {
+          await submitTeamResult(teamName);
+          resultSubmitted = true;
+          closeTeamModal();
+          message = "Результат сохранён";
+          messageColor = COLORS.GREEN;
+        } catch (e) {
+          console.error(e);
+          teamModalError.textContent = e.message || "Не удалось сохранить результат";
+        } finally {
+          isSubmittingResult = false;
+          finishTeamButton.disabled = false;
+          finishTeamButton.textContent = "Закончить!";
+        }
+      }
+
+      function drawContinueButton(x, y, w, h) {
+        continueButtonRect = { x, y, w, h };
+
+        ctx.save();
+        ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+        ctx.shadowBlur = S(16);
+        ctx.shadowOffsetY = S(6);
+
+        roundedRectPath(x, y, w, h, S(16));
+        const g = ctx.createLinearGradient(x, y, x, y + h);
+        g.addColorStop(0, "#6ff091");
+        g.addColorStop(1, "#32bd61");
+        ctx.fillStyle = g;
+        ctx.fill();
+
+        ctx.shadowColor = "transparent";
+        ctx.lineWidth = Math.max(1, S(1));
+        ctx.strokeStyle = "rgba(255,255,255,0.28)";
+        ctx.stroke();
+
+        drawText("Продолжить", x + w / 2, y + h / 2, "#07110b", Math.round(h * 0.38), "center", "900");
+        ctx.restore();
+      }
+
+      function canvasPointFromEvent(event) {
+        const rect = canvas.getBoundingClientRect();
+        const touch = event.touches && event.touches[0] ? event.touches[0] : event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : event;
+        return {
+          x: touch.clientX - rect.left,
+          y: touch.clientY - rect.top
+        };
+      }
+
+      function pointInRect(p, r) {
+        return r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
       }
 
       // -----------------------------
@@ -497,6 +708,8 @@
           ctx.fillStyle = "rgba(255,255,255,0.25)";
           ctx.fillRect(bottleX + bottleW * 0.25, bottleY + bottleH * 0.28, bottleW * 0.12, bottleH * 0.52);
         }
+
+        return { x: bottleX, y: bottleY, w: bottleW, h: bottleH };
       }
 
       function drawElectronicDisplay(x, y, w, h, text, visualScale = 1) {
@@ -557,7 +770,7 @@
         drawImageScaled(assets.safe, bx, by, safeW, safeH);
 
         // Бутылка внутри сейфа, рисуем ДО двери, чтобы закрытая дверь её скрывала.
-        drawBottle(bx, by, safeW, safeH);
+        const bottleBounds = drawBottle(bx, by, safeW, safeH);
 
         // Дверь теперь не сжимается. Она просто едет вправо, пока не уйдёт за экран.
         const tOpen = easeOutCubic(doorOpenAmount);
@@ -583,6 +796,17 @@
             displayDigits(entered),
             sceneBoost
           );
+        }
+
+        // Кнопка появляется после полного открытия сейфа.
+        if (appState === STATE.OPEN && !resultSubmitted && bottleBounds) {
+          const btnW = Math.round(safeW * 0.34);
+          const btnH = Math.round(safeH * 0.075);
+          const btnX = Math.round(bx + safeW * 0.50 - btnW / 2);
+          const btnY = Math.round(bottleBounds.y - btnH - safeH * 0.045);
+          drawContinueButton(btnX, btnY, btnW, btnH);
+        } else {
+          continueButtonRect = null;
         }
       }
 
@@ -708,6 +932,25 @@
         handleVirtualKey(btn.dataset.key);
       });
       mobileControls.addEventListener("touchstart", () => {}, { passive: true });
+
+
+      canvas.addEventListener("pointerdown", (e) => {
+        if (teamModalBackdrop.classList.contains("is-open")) return;
+        const p = canvasPointFromEvent(e);
+        if (appState === STATE.OPEN && !resultSubmitted && pointInRect(p, continueButtonRect)) {
+          e.preventDefault();
+          openTeamModal();
+        }
+      });
+
+      finishTeamButton.addEventListener("click", finishTeam);
+
+      teamNameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finishTeam();
+        }
+      });
 
       // -----------------------------
       // Update / Draw
